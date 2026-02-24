@@ -1,0 +1,158 @@
+version: '3.8'
+
+services:
+  # ========== ZOOKEEPER ==========
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: cdc-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - cdc-network
+    restart: unless-stopped
+    healthcheck:
+      test: echo srvr | nc -w 2 localhost 2181 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========== KAFKA ==========
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: cdc-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_DELETE_TOPIC_ENABLE: "true"
+    networks:
+      - cdc-network
+    restart: unless-stopped
+    healthcheck:
+      test: kafka-broker-api-versions.sh --bootstrap-server localhost:9092 | head -10
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========== KAFKA-UI ==========
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: cdc-kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_CLUSTERS_0_NAME: cdc-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    ports:
+      - "8080:8080"
+    networks:
+      - cdc-network
+    restart: unless-stopped
+
+  # ========== MYSQL ==========
+  mysql:
+    image: mysql:8.0
+    container_name: cdc-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: testdb
+      MYSQL_USER: cdc_user
+      MYSQL_PASSWORD: cdc123
+    ports:
+      - "3306:3306"
+    command:
+      - --server-id=1
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --binlog-row-image=FULL
+      - --max_binlog_size=100M
+      - --expire_logs_days=10
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - cdc-network
+    restart: unless-stopped
+    healthcheck:
+      test: mysqladmin ping -h localhost -u root -proot123
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========== MONGODB ==========
+  mongodb:
+    image: mongo:7.0
+    container_name: cdc-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: root123
+      MONGO_INITDB_DATABASE: testdb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - cdc-network
+    restart: unless-stopped
+    healthcheck:
+      test: echo 'db.adminCommand("ping")' | mongosh --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ========== DEBEZIUM ==========
+  debezium:
+    image: debezium/connect:2.5
+    container_name: cdc-debezium
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: kafka:29092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: debezium.config
+      OFFSET_STORAGE_TOPIC: debezium.offsets
+      STATUS_STORAGE_TOPIC: debezium.status
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_REST_ADVERTISED_HOST_NAME: debezium
+      CONNECT_REST_ADVERTISED_PORT: 8083
+    ports:
+      - "8083:8083"
+    networks:
+      - cdc-network
+    restart: unless-stopped
+    healthcheck:
+      test: curl -s http://localhost:8083 | grep -q connectors
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql_data:
+    driver: local
+  mongodb_data:
+    driver: local
+
+networks:
+  cdc-network:
+    driver: bridge
