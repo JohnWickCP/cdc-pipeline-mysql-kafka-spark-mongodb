@@ -297,15 +297,15 @@ git log --oneline -2
 
 ---
 
-## 🚀 Phase 3: Kafka + Zookeeper (⏳ Sắp tới)
+## Phase 3: Kafka + Zookeeper (Hoàn thành)
 
-**Status**: ⏳ Chờ Phase 2 (MongoDB) hoàn thành ✅
+Status: Completed
 
 ### Mục tiêu
-- [ ] Zookeeper + Kafka container chạy
-- [ ] Test topic creation
-- [ ] Test message producer/consumer
-- [ ] Screenshots chụp & commit
+- Zookeeper + Kafka container chạy
+- Test topic creation
+- Test message producer/consumer
+- Screenshots chụp & commit
 
 ### Docker Compose
 File: `kafka/docker-compose.yml`
@@ -338,12 +338,12 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://kafka:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_DELETE_TOPIC_ENABLE: "true"
     ports:
       - "9092:9092"
       - "29092:29092"
@@ -371,109 +371,93 @@ services:
 
 ### Bước cài đặt & Test
 
-#### Step 1: Tạo kafka/docker-compose.yml
+**Step 1: Tạo kafka/docker-compose.yml**
 ```bash
 cd ~/cdc-pipeline
-
 mkdir -p kafka
 
 cat > kafka/docker-compose.yml << 'EOF'
-[paste the YAML above]
+[paste docker-compose.yml above]
 EOF
 ```
 
-#### Step 2: Khởi động Kafka & Zookeeper
+**Step 2: Khởi động Kafka & Zookeeper**
 ```bash
 cd kafka
 docker compose up -d
-
-# Chờ ~20s để services khởi động
 sleep 20
-
-# Kiểm tra
-docker ps | grep -E "cdc-kafka|cdc-zookeeper"
+docker ps
 ```
 
-**📸 Screenshot name**: `04-kafka-running.png`
-- Chụp output của `docker ps` show cdc-mysql, cdc-mongodb, cdc-kafka, cdc-zookeeper
+Expected: cdc-zookeeper, cdc-kafka, cdc-kafka-ui running
 
-#### Step 3: Test tạo topic
+**Screenshot**: `04-kafka-running.png`
+- Output của `docker ps` show cdc-mysql, cdc-mongodb, cdc-zookeeper, cdc-kafka, cdc-kafka-ui
+
+**Step 3: Tạo topic**
 ```bash
-docker exec cdc-kafka kafka-topics.sh --create \
-  --bootstrap-server kafka:9092 \
+docker exec cdc-kafka kafka-topics \
+  --bootstrap-server localhost:9092 \
+  --create \
   --topic test-topic \
   --partitions 1 \
   --replication-factor 1
 ```
 
-**Expected output**: `Created topic test-topic.`
+Expected: `Created topic test-topic.`
 
-#### Step 4: List topics
+**Step 4: List topics**
 ```bash
-docker exec cdc-kafka kafka-topics.sh --list --bootstrap-server kafka:9092
+docker exec cdc-kafka kafka-topics \
+  --bootstrap-server localhost:9092 \
+  --list
 ```
 
-**Expected output**: `test-topic`
+Expected: `test-topic`
 
-#### Step 5: Test producer (gửi message)
+**Step 5: Test producer (gửi message)**
 ```bash
-docker exec -it cdc-kafka bash -c \
-  'echo -e "Hello Kafka\nMessage 2\nMessage 3" | kafka-console-producer.sh --broker-list kafka:9092 --topic test-topic'
+echo -e "Hello Kafka\nMessage 2\nMessage 3" | docker exec -i cdc-kafka kafka-console-producer \
+  --bootstrap-server localhost:9092 \
+  --topic test-topic
 ```
 
-**Expected output**: Không có output (tức là messages đã được gửi)
+Expected: Không có output (gửi thành công)
 
-#### Step 6: Test consumer (nhận message)
+**Step 6: Test consumer (nhận message)**
 ```bash
-docker exec -it cdc-kafka kafka-console-consumer.sh \
-  --bootstrap-server kafka:9092 \
+timeout 5 docker exec cdc-kafka kafka-console-consumer \
+  --bootstrap-server localhost:9092 \
   --topic test-topic \
   --from-beginning
 ```
 
-**Expected output**:
+Expected output:
 ```
 Hello Kafka
 Message 2
 Message 3
 ```
 
-Nhấn `Ctrl+C` để thoát.
-
-**📸 Screenshot name**: `05-kafka-producer-consumer.png`
-- Chụp output của producer + consumer test
-
-#### Step 7: Kafka UI (Web Interface - Optional)
-```
-🔗 URL: http://localhost:8080
-```
-
-Navigate to "Topics" để xem test-topic
-
-**📸 Screenshot name**: `06-kafka-ui.png` (optional)
-- Chụp Kafka UI homepage
+**Screenshot**: `05-kafka-producer-consumer.png`
+- Output của Step 5 + 6 (producer + consumer test)
 
 ### Commit GitHub
 ```bash
 cd ~/cdc-pipeline
 
-# Add files
 git add kafka/docker-compose.yml
 git add screenshots/04-kafka-running.png
 git add screenshots/05-kafka-producer-consumer.png
-git add screenshots/06-kafka-ui.png  # (nếu chụp)
 
-# Commit
-git commit -m "feat(kafka): add zookeeper and kafka broker configuration
+git commit -m "feat(kafka): add zookeeper and kafka broker with delete.topic.enable
 
 - Zookeeper 7.5.0 for coordination
 - Kafka 7.5.0 broker with plaintext protocol
-- Kafka UI 8080 for monitoring
-- Auto topic creation enabled
-- Healthchecks configured
-- Screenshots: containers running, producer/consumer test, Kafka UI"
+- KAFKA_DELETE_TOPIC_ENABLE=true for topic deletion
+- Test topic creation and producer/consumer successful
+- Screenshots: containers running, producer/consumer test"
 
-# Push
 git push origin main
 ```
 
@@ -599,11 +583,216 @@ test(debezium): verify connector status endpoint
 
 ---
 
-## 🤝 Contributors
+---
 
-- Cao Xuân Phô (Author)
+## Docker Commands Reference
+
+### Container Management
+```bash
+# Check containers
+docker ps                    # Show running containers
+docker ps -a                 # Show all containers
+
+# Logs
+docker logs <container_name> -f    # View container logs live
+
+# Stop/Start
+docker compose down          # Stop all services
+docker compose up -d         # Start all services
+docker restart <container>   # Restart container
+```
+
+### MongoDB Commands
+```bash
+# Connect to MongoDB
+docker exec cdc-mongodb mongosh -u root -p root123 --authenticationDatabase admin testdb
+
+# Inside mongosh:
+db.adminCommand("ping")      # Test connection
+show collections             # List collections
+db.orders.find().pretty()    # View data
+db.orders.countDocuments()   # Count records
+exit                         # Exit
+```
+
+### MySQL Commands
+```bash
+# Connect to MySQL
+docker exec -it cdc-mysql mysql -u root -proot123 testdb
+
+# Inside MySQL:
+SHOW MASTER STATUS;          # Check binlog status
+SELECT * FROM orders;        # View data
+DESC orders;                 # Table structure
+exit                         # Exit
+```
+
+### Kafka Commands
+```bash
+# List topics
+docker exec cdc-kafka kafka-topics \
+  --bootstrap-server localhost:9092 \
+  --list
+
+# Create topic
+docker exec cdc-kafka kafka-topics \
+  --bootstrap-server localhost:9092 \
+  --create \
+  --topic <topic-name> \
+  --partitions 1 \
+  --replication-factor 1
+
+# Delete topic
+docker exec cdc-kafka kafka-topics \
+  --bootstrap-server localhost:9092 \
+  --delete \
+  --topic <topic-name>
+
+# Producer (send messages)
+echo "message" | docker exec -i cdc-kafka kafka-console-producer \
+  --bootstrap-server localhost:9092 \
+  --topic <topic-name>
+
+# Consumer (receive messages)
+docker exec cdc-kafka kafka-console-consumer \
+  --bootstrap-server localhost:9092 \
+  --topic <topic-name> \
+  --from-beginning
+```
+
+### Important Notes
+- Use `localhost:9092` for commands inside containers (not `kafka:9092`)
+- Use `kafka-topics` (not `kafka-topics.sh`) in Confluent 7.5.0+
+- Set `KAFKA_DELETE_TOPIC_ENABLE: "true"` in docker-compose to enable topic deletion
 
 ---
 
-**Last Updated**: 2026-02-24  
-**Next Phase**: Kafka + Zookeeper (Phase 3)
+## Git Workflow
+
+### Commit Convention
+Format: `<type>(<scope>): <subject>`
+
+Types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`  
+Scopes: `mysql`, `mongodb`, `kafka`, `debezium`, `spark`, `readme`, `pipeline`
+
+Examples:
+```bash
+feat(mongodb): add docker-compose with sample data
+fix(kafka): enable topic deletion in docker-compose
+docs(readme): update phase 3 completion
+```
+
+### Basic Git Commands
+```bash
+# Check status
+git status                   # Show changed files
+git log --oneline           # Show commit history
+
+# Add & Commit
+git add <file>              # Add single file
+git add .                   # Add all changes
+git commit -m "message"     # Commit with message
+
+# Push
+git push origin main        # Push to GitHub
+
+# Verify
+git log --oneline -5        # Show last 5 commits
+```
+
+### Typical Workflow per Phase
+```bash
+# 1. Make changes
+# [create/update files]
+
+# 2. Add files
+git add <files>
+
+# 3. Commit
+git commit -m "feat(<scope>): description"
+
+# 4. Push
+git push origin main
+
+# 5. Verify
+git log --oneline -2
+```
+
+---
+
+## Screenshots
+
+### Phase 1: MySQL
+![MySQL Running](screenshots/01-mysql-running.png)
+MySQL container + sample data
+
+### Phase 2: MongoDB
+![MongoDB Running](screenshots/02-mongodb-running.png)
+MySQL + MongoDB containers
+
+![MongoDB Sample Data](screenshots/03-mongodb-sample-data.png)
+3 records in orders collection
+
+### Phase 3: Kafka
+![Kafka Running](screenshots/04-kafka-running.png)
+All containers running (MySQL, MongoDB, Zookeeper, Kafka, Kafka-UI)
+
+![Kafka Producer Consumer](screenshots/05-kafka-producer-consumer.png)
+Producer/Consumer test output
+
+### Phase 4: Debezium (Coming Soon)
+![Debezium Running](screenshots/06-debezium-running.png)
+Debezium connector running
+
+![Debezium Connector Status](screenshots/07-debezium-connector-status.png)
+MySQL connector status OK
+
+### Phase 5: Spark (Coming Soon)
+![Spark Running](screenshots/08-spark-running.png)
+Spark Master + Workers
+
+### Phase 6: Full Pipeline (Coming Soon)
+![Full Pipeline Data](screenshots/09-full-pipeline-data.png)
+Data flow MySQL → MongoDB
+
+---
+
+## Web UIs
+
+| Service | URL | Port | Purpose |
+|---------|-----|------|---------|
+| Kafka UI | http://localhost:8080 | 8080 | Monitor Kafka topics |
+| Mongo Express | http://localhost:8081 | 8081 | Browse MongoDB data |
+| Spark Master | http://localhost:8888 | 8888 | Monitor Spark jobs |
+| Debezium REST | http://localhost:8083 | 8083 | Manage connectors |
+
+---
+
+## Troubleshooting
+
+### Topic deletion not working
+Problem: `delete.topic.enable=false`  
+Solution: Add `KAFKA_DELETE_TOPIC_ENABLE: "true"` to Kafka environment, restart
+
+### MongoDB insert not working
+Problem: Heredoc fails with docker exec  
+Solution: Use `--eval` flag instead of heredoc
+
+### Kafka commands not found
+Problem: `kafka-topics.sh not found`  
+Solution: Use `kafka-topics` (without .sh) for Confluent 7.5.0+
+
+### TTY error
+Problem: `input device is not a TTY`  
+Solution: Remove `-it` flag from docker exec
+
+### Port already in use
+Solution:
+```bash
+sudo lsof -i :<port>      # Find process using port
+sudo kill -9 <PID>        # Kill process
+```
+
+---
+
+**Last Updated**: 2026-02-24
