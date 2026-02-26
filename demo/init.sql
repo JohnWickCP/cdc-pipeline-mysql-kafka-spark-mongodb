@@ -1,0 +1,11 @@
+CREATE DATABASE IF NOT EXISTS inventory;
+
+USE inventory;
+
+CREATE TABLE customers (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  name VARCHAR(100),
+  email VARCHAR(100),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+

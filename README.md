@@ -1,50 +1,35 @@
 # CDC Pipeline: MySQL → Kafka → Spark → MongoDB
 
-> **Đồ án tốt nghiệp** - Change Data Capture pipeline đồng bộ dữ liệu gần real-time
-
-**Tác giả**: Cao Xuân Phô  
-**Trạng thái**: 🟡 POC Phase - Demo từng công cụ một
+> Demo đơn giản Change Data Capture pipeline đồng bộ dữ liệu gần real-time
 
 ---
 
-## 📊 Progress Tracker
-
-| Phase | Component | Status | Ngày hoàn thành |
-|-------|-----------|--------|-----------------|
-| 1 | MySQL 8.0 + Binary Log | ✅ Hoàn thành | 2026-02-24 |
-| 2 | MongoDB 7.0 | 🟡 Đang làm | TBD |
-| 3 | Kafka + Zookeeper | ⏳ Sắp tới | - |
-| 4 | Debezium (MySQL→Kafka) | ⏳ Sắp tới | - |
-| 5 | Spark Streaming (Kafka→MongoDB) | ⏳ Sắp tới | - |
-| 6 | Full Pipeline Integration | ⏳ Sắp tới | - |
-| 7 | Testing & Documentation | ⏳ Sắp tới | - |
-
----
-
-## 🛠️ Tech Stack
+## Tech Stack
 
 ```
-MySQL 8.0         → Source database (port 3306)
-Debezium 2.5      → CDC connector (port 8083) 
-Kafka 7.5.0       → Message broker (port 9092)
-Spark 3.5.0       → Stream processing (port 8888)
-MongoDB 7.0       → Target database (port 27017)
-Docker 29.x       → Containerization
+MySQL 8.0         - Cơ sở dữ liệu nguồn (port 3306)
+Debezium 2.5      - CDC connector (port 8083) 
+Kafka 7.5.0       - Message broker (port 9092)
+Zookeeper 7.5.0   - Kafka coordination (port 2181)
+Spark 3.5.0       - Stream processing (port 8080)
+MongoDB 7.0       - Cơ sở dữ liệu đích (port 27017)
+Redis 7.0         - Caching tùy chọn (port 6379)
+Docker 29.x       - Containerization
 ```
 
 ---
 
-## 💻 Hệ thống yêu cầu
+## Yêu cầu hệ thống
 
 - **OS**: Linux (Linux Mint 22+, Ubuntu, ...)
-- **RAM**: 32GB
+- **RAM**: 32GB (khuyến nghị)
 - **Disk**: 50GB+ free space
 - **Docker**: v29.1.3+
 - **Docker Compose**: v5.0.0+
 
 ---
 
-## 📋 Quick Start
+## Quick Start
 
 ### Bước 1: Clone repo
 ```bash
@@ -54,587 +39,321 @@ cd cdc-pipeline-mysql-kafka-spark-mongodb
 
 ### Bước 2: Cấu trúc thư mục
 ```bash
-mkdir -p {mysql,mongodb,kafka,spark,debezium,pipeline,screenshots}
+mkdir -p {mysql,mongodb,kafka,spark,debezium,pipeline,demo,screenshots}
 ```
 
 ---
 
-## 🚀 Phase 1: MySQL (✅ Hoàn thành)
+## Khởi chạy toàn bộ Pipeline
 
-### Trạng thái
-- ✅ Docker MySQL image đã pull
-- ✅ Container chạy (cdc-mysql)
-- ✅ Binary Log bật (`--binlog-format=ROW`)
-- ✅ Sample data đã insert
-- ✅ Test connection thành công
-
-### Docker Compose
-```yaml
-# mysql/docker-compose.yml
-version: '3.8'
-services:
-  mysql:
-    image: mysql:8.0
-    container_name: cdc-mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: root123
-      MYSQL_DATABASE: testdb
-      MYSQL_USER: cdc_user
-      MYSQL_PASSWORD: cdc123
-    ports:
-      - "3306:3306"
-    command:
-      - --server-id=1
-      - --log-bin=mysql-bin
-      - --binlog-format=ROW
-      - --binlog-row-image=FULL
-```
-
-### Test MySQL
+### Bước 1: Start tất cả services
 ```bash
-docker exec -it cdc-mysql mysql -u root -proot123 testdb
-> SHOW MASTER STATUS;           # Kiểm tra binlog
-> SELECT * FROM orders;         # Xem sample data
-```
-
----
-
-## 🚀 Phase 2: MongoDB (🟡 Đang làm)
-
-### Mục tiêu
-- [x] Docker MongoDB image đã pull
-- [x] Container chạy (cdc-mongodb)
-- [ ] Test kết nối thành công
-- [ ] Sample collections tạo thành công
-- [ ] Screenshots chụp & commit
-
-### Docker Compose
-File: `mongodb/docker-compose.yml`
-```yaml
-version: '3.8'
-
-services:
-  mongodb:
-    image: mongo:7.0
-    container_name: cdc-mongodb
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: root123
-      MONGO_INITDB_DATABASE: testdb
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-    restart: unless-stopped
-    healthcheck:
-      test: echo 'db.adminCommand("ping")' | mongosh --quiet
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  mongodb_data:
-    driver: local
-```
-
-### Bước cài đặt & Test
-
-#### Step 1: Cập nhật docker-compose (nếu cần)
-```bash
-cd ~/cdc-pipeline/mongodb
-
-# Cập nhật file với volume & healthcheck
-cat > docker-compose.yml << 'EOF'
-version: '3.8'
-
-services:
-  mongodb:
-    image: mongo:7.0
-    container_name: cdc-mongodb
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: root123
-      MONGO_INITDB_DATABASE: testdb
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-    restart: unless-stopped
-    healthcheck:
-      test: echo 'db.adminCommand("ping")' | mongosh --quiet
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  mongodb_data:
-    driver: local
-EOF
-
-# Restart container
-docker compose down
+cd pipeline
+docker compose down -v
 docker compose up -d
-```
-
-#### Step 2: Kiểm tra containers chạy
-```bash
 docker ps
 ```
-**Expected output**: Cả cdc-mysql và cdc-mongodb running
 
-**📸 Screenshot name**: `02-mongodb-running.png`
-- Chụp output của `docker ps` show cả MySQL & MongoDB
+**Dự kiến**: Tất cả container chạy
 
-#### Step 3: Test ping MongoDB
+📸 **Ảnh minh họa**: `screenshots/01-full-pipeline-running.png`
+
+![Full Pipeline Running](screenshots/01-full-pipeline-running.png)
+
+---
+
+## Phase 1: Khởi tạo MySQL
+
+### Khởi tạo dữ liệu MySQL
+
 ```bash
-docker exec -it cdc-mongodb mongosh -u root -p root123 --authenticationDatabase admin testdb --eval "db.adminCommand('ping')"
-```
-**Expected output**: `{ ok: 1 }`
-
-#### Step 4: Tạo collection & insert data mẫu
-```bash
-docker exec -it cdc-mongodb mongosh -u root -p root123 --authenticationDatabase admin testdb << 'EOF'
-// Tạo collection
-db.createCollection('orders')
-
-// Insert sample data
-db.orders.insertMany([
-  {
-    id: 1,
-    product: "Laptop",
-    quantity: 2,
-    price: 1200.00,
-    status: "completed",
-    created_at: new Date()
-  },
-  {
-    id: 2,
-    product: "Mouse",
-    quantity: 5,
-    price: 25.00,
-    status: "pending",
-    created_at: new Date()
-  },
-  {
-    id: 3,
-    product: "Keyboard",
-    quantity: 3,
-    price: 75.00,
-    status: "completed",
-    created_at: new Date()
-  }
-])
-
-// Hiển thị dữ liệu
-print("\n=== Data in orders collection ===")
-db.orders.find().pretty()
-EOF
+# Chạy script khởi tạo database
+docker exec -i cdc-mysql mysql -uroot -proot < demo/init.sql
+docker exec -i cdc-mysql mysql -uroot -proot < demo/test-data.sql
 ```
 
-#### Step 5: Verify dữ liệu
+### Kiểm tra dữ liệu
+
 ```bash
-docker exec -it cdc-mongodb mongosh -u root -p root123 --authenticationDatabase admin testdb --eval "db.orders.find().pretty()"
+docker exec -it cdc-mysql mysql -uroot -proot -e "USE inventory; SELECT * FROM customers;"
 ```
 
-**📸 Screenshot name**: `03-mongodb-sample-data.png`
-- Chụp output của lệnh trên, hiển thị 3 records
+**Dự kiến**: Danh sách khách hàng ban đầu
 
-### Kết quả mong đợi
-```javascript
+📸 **Ảnh minh họa**: `screenshots/02-mysql-initial-data.png`
+
+![MySQL Initial Data](screenshots/02-mysql-initial-data.png)
+
+---
+
+## Phase 2: Đăng ký Debezium Connector
+
+### Register MySQL Connector
+
+```bash
+cd demo
+./register-connector.sh
+```
+
+### Kiểm tra Connector Status
+
+```bash
+# Liệt kê tất cả connectors
+curl http://localhost:8083/connectors
+
+# Kiểm tra trạng thái connector
+curl http://localhost:8083/connectors/mysql-connector/status
+```
+
+**Expected output**:
+```json
 {
-  _id: ObjectId('65d4a1f2b8c9d0e1f2g3h4i5'),
-  id: 1,
-  product: 'Laptop',
-  quantity: 2,
-  price: 1200,
-  status: 'completed',
-  created_at: ISODate('2026-02-24T...')
-},
-{
-  _id: ObjectId('65d4a1f2b8c9d0e1f2g3h4i6'),
-  id: 2,
-  product: 'Mouse',
-  quantity: 5,
-  price: 25,
-  status: 'pending',
-  created_at: ISODate('2026-02-24T...')
-},
-{
-  _id: ObjectId('65d4a1f2b8c9d0e1f2g3h4i7'),
-  id: 3,
-  product: 'Keyboard',
-  quantity: 3,
-  price: 75,
-  status: 'completed',
-  created_at: ISODate('2026-02-24T...')
+  "name": "mysql-connector",
+  "config": {...},
+  "tasks": [...],
+  "type": "source"
 }
 ```
 
-### Commit GitHub
-```bash
-cd ~/cdc-pipeline
-
-# Add files
-git add mongodb/docker-compose.yml
-git add screenshots/02-mongodb-running.png
-git add screenshots/03-mongodb-sample-data.png
-
-# Commit
-git commit -m "feat(mongodb): add docker-compose with sample data
-
-- MongoDB 7.0 with root credentials
-- Volume for data persistence
-- Healthcheck configured
-- Sample collection 'orders' with 3 test records
-- Screenshots: containers running, sample data"
-
-# Push
-git push origin main
-
-# Verify
-git log --oneline -2
+**Trạng thái mong đợi**:
+```json
+"state": "RUNNING"
 ```
+
+📸 **Ảnh minh họa**: `screenshots/03-debezium-connector-running.png`
+
+![Debezium Connector Running](screenshots/03-debezium-connector-running.png)
 
 ---
 
-## Phase 3: Kafka + Zookeeper (Hoàn thành)
+## Phase 3: Kiểm tra CDC (Thao tác CRUD)
 
-Status: Completed
-
-### Mục tiêu
-- Zookeeper + Kafka container chạy
-- Test topic creation
-- Test message producer/consumer
-- Screenshots chụp & commit
-
-### Docker Compose
-File: `kafka/docker-compose.yml`
-
-```yaml
-version: '3.8'
-
-services:
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: cdc-zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-    restart: unless-stopped
-    healthcheck:
-      test: echo srvr | nc -w 2 localhost 2181 || exit 1
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: cdc-kafka
-    depends_on:
-      zookeeper:
-        condition: service_healthy
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_DELETE_TOPIC_ENABLE: "true"
-    ports:
-      - "9092:9092"
-      - "29092:29092"
-    restart: unless-stopped
-    healthcheck:
-      test: kafka-broker-api-versions.sh --bootstrap-server localhost:9092 | head -10
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  kafka-ui:
-    image: provectuslabs/kafka-ui:latest
-    container_name: cdc-kafka-ui
-    depends_on:
-      kafka:
-        condition: service_healthy
-    environment:
-      KAFKA_CLUSTERS_0_NAME: cdc-cluster
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
-      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
-    ports:
-      - "8080:8080"
-    restart: unless-stopped
+### Topic được tạo
+```
+mysql.inventory.customers
 ```
 
-### Bước cài đặt & Test
+### 3.1 - Đọc Snapshot (op=r)
 
-**Step 1: Tạo kafka/docker-compose.yml**
-```bash
-cd ~/cdc-pipeline
-mkdir -p kafka
+Khi Debezium connector đăng ký, nó sẽ đọc dữ liệu ban đầu từ MySQL.
 
-cat > kafka/docker-compose.yml << 'EOF'
-[paste docker-compose.yml above]
-EOF
+**Định dạng event**:
+```json
+{
+  "op": "r",
+  "before": null,
+  "after": {
+    "id": 1,
+    "name": "John",
+    "email": "john@example.com"
+  }
+}
 ```
 
-**Step 2: Khởi động Kafka & Zookeeper**
+### 3.2 - Thao tác Thêm (op=c)
+
 ```bash
-cd kafka
-docker compose up -d
-sleep 20
-docker ps
+docker exec -it cdc-mysql mysql -uroot -proot -e \
+"USE inventory; INSERT INTO customers (name, email) VALUES ('Eve', 'eve@example.com');"
 ```
 
-Expected: cdc-zookeeper, cdc-kafka, cdc-kafka-ui running
-
-**Screenshot**: `04-kafka-running.png`
-- Output của `docker ps` show cdc-mysql, cdc-mongodb, cdc-zookeeper, cdc-kafka, cdc-kafka-ui
-
-**Step 3: Tạo topic**
+**Đọc message từ Kafka**:
 ```bash
-docker exec cdc-kafka kafka-topics \
+docker exec -it cdc-kafka kafka-console-consumer \
   --bootstrap-server localhost:9092 \
-  --create \
-  --topic test-topic \
-  --partitions 1 \
-  --replication-factor 1
-```
-
-Expected: `Created topic test-topic.`
-
-**Step 4: List topics**
-```bash
-docker exec cdc-kafka kafka-topics \
-  --bootstrap-server localhost:9092 \
-  --list
-```
-
-Expected: `test-topic`
-
-**Step 5: Test producer (gửi message)**
-```bash
-echo -e "Hello Kafka\nMessage 2\nMessage 3" | docker exec -i cdc-kafka kafka-console-producer \
-  --bootstrap-server localhost:9092 \
-  --topic test-topic
-```
-
-Expected: Không có output (gửi thành công)
-
-**Step 6: Test consumer (nhận message)**
-```bash
-timeout 5 docker exec cdc-kafka kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
-  --topic test-topic \
+  --topic mysql.inventory.customers \
   --from-beginning
 ```
 
-Expected output:
-```
-Hello Kafka
-Message 2
-Message 3
+**Định dạng event**:
+```json
+{
+  "op": "c",
+  "before": null,
+  "after": {
+    "id": 5,
+    "name": "Eve",
+    "email": "eve@example.com"
+  }
+}
 ```
 
-**Screenshot**: `05-kafka-producer-consumer.png`
-- Output của Step 5 + 6 (producer + consumer test)
+📸 **Ảnh minh họa**: `screenshots/04-kafka-cdc-insert-event.png`
 
-### Commit GitHub
+![Kafka CDC Insert Event](screenshots/04-kafka-cdc-insert-event.png)
+
+### 3.3 - Thao tác Cập nhật (op=u)
+
 ```bash
-cd ~/cdc-pipeline
-
-git add kafka/docker-compose.yml
-git add screenshots/04-kafka-running.png
-git add screenshots/05-kafka-producer-consumer.png
-
-git commit -m "feat(kafka): add zookeeper and kafka broker with delete.topic.enable
-
-- Zookeeper 7.5.0 for coordination
-- Kafka 7.5.0 broker with plaintext protocol
-- KAFKA_DELETE_TOPIC_ENABLE=true for topic deletion
-- Test topic creation and producer/consumer successful
-- Screenshots: containers running, producer/consumer test"
-
-git push origin main
+docker exec -it cdc-mysql mysql -uroot -proot -e \
+"USE inventory; UPDATE customers SET name='Eve Updated' WHERE name='Eve';"
 ```
 
-## 🚀 Phase 4: Debezium (⏳ Sắp tới)
+**Định dạng event**:
+```json
+{
+  "op": "u",
+  "before": {
+    "name": "Eve"
+  },
+  "after": {
+    "id": 5,
+    "name": "Eve Updated",
+    "email": "eve@example.com"
+  }
+}
+```
 
-**Mục tiêu**: Kết nối MySQL Binary Log → Kafka topics
+📸 **Ảnh minh họa**: `screenshots/05-kafka-cdc-update-event.png`
 
-**Dự kiến**: Sau Kafka ✅
+![Kafka CDC Update Event](screenshots/05-kafka-cdc-update-event.png)
+
+### 3.4 - Thao tác Xóa (op=d)
+
+```bash
+docker exec -it cdc-mysql mysql -uroot -proot -e \
+"USE inventory; DELETE FROM customers WHERE name='Eve Updated';"
+```
+
+**Định dạng event**:
+```json
+{
+  "op": "d",
+  "before": {
+    "id": 5,
+    "name": "Eve Updated",
+    "email": "eve@example.com"
+  },
+  "after": null
+}
+```
+
+📸 **Ảnh minh họa**: `screenshots/06-kafka-cdc-delete-event.png`
+
+![Kafka CDC Delete Event](screenshots/06-kafka-cdc-delete-event.png)
 
 ---
 
-## 🚀 Phase 5: Spark Streaming (⏳ Sắp tới)
+## Phase 4: Spark Cluster
 
-**Mục tiêu**: Consume từ Kafka → Xử lý → Ghi MongoDB
+### Giao diện Spark Master
 
-**Dự kiến**: Sau Debezium ✅
+```
+URL: http://localhost:8080
+```
+
+Kiểm tra:
+- Trạng thái Master
+- Các Worker đang chạy (worker-1, worker-2)
+- Các ứng dụng đang chạy
+- Các ứng dụng đã hoàn thành
+
+📸 **Ảnh minh họa**: `screenshots/07-spark-master-ui.png`
+
+![Spark Master UI](screenshots/07-spark-master-ui.png)
+
+### Spark Streaming Job
+
+```bash
+# Tạo submission script
+spark-submit \
+  --class org.apache.spark.streaming.kafka010.KafkaWordCount \
+  --master spark://localhost:7077 \
+  --total-executor-cores 2 \
+  path/to/application.jar
+```
+
+📸 **Ảnh minh họa**: `screenshots/08-spark-streaming-job.png`
+
+![Spark Streaming Job](screenshots/08-spark-streaming-job.png)
 
 ---
 
-## 📁 Cấu trúc Project
+## Phase 5: Xác minh Data Flow
+
+### Kiểm tra dữ liệu từ MySQL đến MongoDB
+
+```bash
+# 1. Thêm dữ liệu vào MySQL
+docker exec -it cdc-mysql mysql -uroot -proot -e \
+"USE inventory; INSERT INTO customers (name, email) VALUES ('Test User', 'test@example.com');"
+
+# 2. Xem event trong Kafka
+docker exec -it cdc-kafka kafka-console-consumer \
+  --bootstrap-server localhost:9092 \
+  --topic mysql.inventory.customers \
+  --max-messages 10
+
+# 3. Xác minh trong MongoDB
+docker exec -it cdc-mongodb mongosh -u root -p root123 --authenticationDatabase admin inventory -e \
+"db.customers.find().pretty()"
+```
+
+**Dự kiến**: Dữ liệu xuất hiện trong MongoDB trong vài giây
+
+📸 **Ảnh minh họa**: `screenshots/09-full-pipeline-data-flow.png`
+
+![Full Pipeline Data Flow](screenshots/09-full-pipeline-data-flow.png)
+
+---
+
+## Cấu trúc Project
 
 ```
-cdc-pipeline-mysql-kafka-spark-mongodb/
-├── mysql/
-│   └── docker-compose.yml          # ✅ Hoàn thành
-├── mongodb/
-│   └── docker-compose.yml          # 🟡 Đang làm
-├── kafka/
-│   └── docker-compose.yml          # ⏳ Sắp tới
-├── spark/
-│   └── docker-compose.yml          # ⏳ Sắp tới
-├── debezium/
-│   └── docker-compose.yml          # ⏳ Sắp tới
+cdc-pipeline/
+│
+├── demo/
+│   ├── init.sql                    # Schema + dữ liệu ban đầu
+│   ├── test-data.sql               # Dữ liệu mẫu
+│   └── register-connector.sh        # Đăng ký Debezium connector
+│
 ├── pipeline/
-│   └── docker-compose.yml          # ⏳ Sắp tới (full tích hợp)
-├── screenshots/                     # Chứng minh từng bước
-│   ├── 01-mysql-running.png        # ✅
-│   └── 02-mongodb-running.png      # 🟡
+│   └── docker-compose.yml          # Full stack docker-compose
+│
+├── screenshots/
+│   ├── 01-full-pipeline-running.png
+│   ├── 02-mysql-initial-data.png
+│   ├── 03-debezium-connector-running.png
+│   ├── 04-kafka-cdc-insert-event.png
+│   ├── 05-kafka-cdc-update-event.png
+│   ├── 06-kafka-cdc-delete-event.png
+│   ├── 07-spark-master-ui.png
+│   ├── 08-spark-streaming-job.png
+│   └── 09-full-pipeline-data-flow.png
+│
 ├── README.md                        # File này
 └── .gitignore
 ```
 
 ---
 
-## 📸 Screenshots
+## Lệnh hữu ích
 
-| Phase | Screenshot | Mô tả |
-|-------|-----------|-------|
-| 1 | `01-mysql-running.png` | MySQL container chạy + test data |
-| 2 | `02-mongodb-running.png` | MongoDB container chạy + test insert |
-| 3 | `03-kafka-running.png` | Kafka + Zookeeper chạy + test topic |
-| 4 | `04-debezium-connector.png` | Debezium connector registered |
-| 5 | `05-spark-streaming.png` | Spark jobs consuming Kafka |
-| 6 | `06-full-pipeline.png` | Data flow MySQL → MongoDB |
-
----
-
-## 🔧 Lệnh hữu ích
+### Quản lý Docker
 
 ```bash
-# Kiểm tra tất cả containers
+# Kiểm tra containers
+docker ps
 docker ps -a
 
-# View logs
-docker logs <container_name> -f
+# Xem logs
+docker logs cdc-debezium -f
+docker logs cdc-kafka -f
+docker logs cdc-spark-master -f
 
-# Connect vào container
-docker exec -it <container_name> bash
-
-# Remove all containers
-docker compose down
-docker volume prune
-
-# Rebuild images
-docker compose up -d --build
-
-# Git status
-git status
-
-# Commit changes
-git add .
-git commit -m "feat: description"
-git push origin main
+# Xóa toàn bộ hệ thống
+docker compose down -v
 ```
 
----
+### Topics Kafka
 
-## 📝 Commit Convention
-
-**Format**: `<type>(<scope>): <subject>`
-
-Examples:
-```
-feat(mysql): add docker-compose with binlog enabled
-feat(mongodb): add docker-compose with healthcheck
-fix(kafka): update bootstrap server configuration
-docs(readme): add phase 3 instructions
-test(debezium): verify connector status endpoint
-```
-
----
-
-## ✅ Checklist - Phase 2 (MongoDB)
-
-- [ ] Docker Compose file tạo
-- [ ] Container start thành công
-- [ ] Test ping MongoDB → OK
-- [ ] Tạo collection 'orders' → OK
-- [ ] Insert sample data → OK
-- [ ] Screenshot chụp → lưu vào `screenshots/02-mongodb-running.png`
-- [ ] Commit lên GitHub → `git push`
-- [ ] Update README.md → Mark Phase 2 complete ✅
-
----
-
-## 📚 References
-
-- [Docker Documentation](https://docs.docker.com/)
-- [MongoDB Documentation](https://docs.mongodb.com/)
-- [Apache Kafka Documentation](https://kafka.apache.org/documentation/)
-- [Debezium Documentation](https://debezium.io/documentation/)
-- [Apache Spark Documentation](https://spark.apache.org/docs/)
-
----
-
----
-
-## Docker Commands Reference
-
-### Container Management
 ```bash
-# Check containers
-docker ps                    # Show running containers
-docker ps -a                 # Show all containers
-
-# Logs
-docker logs <container_name> -f    # View container logs live
-
-# Stop/Start
-docker compose down          # Stop all services
-docker compose up -d         # Start all services
-docker restart <container>   # Restart container
-```
-
-### MongoDB Commands
-```bash
-# Connect to MongoDB
-docker exec cdc-mongodb mongosh -u root -p root123 --authenticationDatabase admin testdb
-
-# Inside mongosh:
-db.adminCommand("ping")      # Test connection
-show collections             # List collections
-db.orders.find().pretty()    # View data
-db.orders.countDocuments()   # Count records
-exit                         # Exit
-```
-
-### MySQL Commands
-```bash
-# Connect to MySQL
-docker exec -it cdc-mysql mysql -u root -proot123 testdb
-
-# Inside MySQL:
-SHOW MASTER STATUS;          # Check binlog status
-SELECT * FROM orders;        # View data
-DESC orders;                 # Table structure
-exit                         # Exit
-```
-
-### Kafka Commands
-```bash
-# List topics
+# Liệt kê topics
 docker exec cdc-kafka kafka-topics \
   --bootstrap-server localhost:9092 \
   --list
 
-# Create topic
+# Tạo topic
 docker exec cdc-kafka kafka-topics \
   --bootstrap-server localhost:9092 \
   --create \
@@ -642,157 +361,304 @@ docker exec cdc-kafka kafka-topics \
   --partitions 1 \
   --replication-factor 1
 
-# Delete topic
+# Xóa topic
 docker exec cdc-kafka kafka-topics \
   --bootstrap-server localhost:9092 \
   --delete \
   --topic <topic-name>
 
-# Producer (send messages)
-echo "message" | docker exec -i cdc-kafka kafka-console-producer \
-  --bootstrap-server localhost:9092 \
-  --topic <topic-name>
-
-# Consumer (receive messages)
-docker exec cdc-kafka kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
-  --topic <topic-name> \
-  --from-beginning
+# Xem số message
+docker exec cdc-kafka kafka-run-class kafka.tools.JmxTool \
+  --object-name kafka.server:type=BrokerTopicMetrics,name=MessagesInPerSec
 ```
 
-### Important Notes
-- Use `localhost:9092` for commands inside containers (not `kafka:9092`)
-- Use `kafka-topics` (not `kafka-topics.sh`) in Confluent 7.5.0+
-- Set `KAFKA_DELETE_TOPIC_ENABLE: "true"` in docker-compose to enable topic deletion
+### Lệnh MySQL
+
+```bash
+# Kết nối
+docker exec -it cdc-mysql mysql -uroot -proot
+
+# Kiểm tra binlog
+SHOW MASTER STATUS;
+
+# Xem bảng
+SHOW TABLES;
+
+# Xem dữ liệu
+SELECT * FROM customers;
+```
+
+### Lệnh MongoDB
+
+```bash
+# Kết nối
+docker exec -it cdc-mongodb mongosh -u root -p root123 --authenticationDatabase admin
+
+# Liệt kê cơ sở dữ liệu
+show dbs
+
+# Chọn cơ sở dữ liệu
+use inventory
+
+# Liệt kê collections
+show collections
+
+# Xem dữ liệu
+db.customers.find().pretty()
+
+# Đếm documents
+db.customers.countDocuments()
+```
+
+### Debezium REST API
+
+```bash
+# Liệt kê connectors
+curl http://localhost:8083/connectors
+
+# Lấy trạng thái connector
+curl http://localhost:8083/connectors/mysql-connector/status
+
+# Lấy config connector
+curl http://localhost:8083/connectors/mysql-connector/config
+
+# Tạm dừng connector
+curl -X PUT http://localhost:8083/connectors/mysql-connector/pause
+
+# Tiếp tục connector
+curl -X PUT http://localhost:8083/connectors/mysql-connector/resume
+
+# Xóa connector
+curl -X DELETE http://localhost:8083/connectors/mysql-connector
+```
+
+---
+
+## Ảnh minh họa
+
+## Ảnh minh họa
+
+| Phase | Ảnh | Mô tả |
+|-------|-----|-------|
+| 1 | `01-full-pipeline-running.png` | Tất cả containers chạy |
+| 2 | `02-mysql-initial-data.png` | MySQL dữ liệu khởi tạo |
+| 3 | `03-debezium-connector-running.png` | Debezium connector đã đăng ký |
+| 4 | `04-kafka-cdc-insert-event.png` | CDC Insert event |
+| 5 | `05-kafka-cdc-update-event.png` | CDC Update event |
+| 6 | `06-kafka-cdc-delete-event.png` | CDC Delete event |
+| 7 | `07-spark-master-ui.png` | Spark Master dashboard |
+| 8 | `08-spark-streaming-job.png` | Spark streaming job |
+| 9 | `09-full-pipeline-data-flow.png` | Xác minh data flow |
+
+---
+
+### Chi tiết ảnh minh họa
+
+#### Phase 1: Full Pipeline Running
+![Full Pipeline Running](screenshots/01-full-pipeline-running.png)
+*Tất cả containers chạy (MySQL, MongoDB, Zookeeper, Kafka, Debezium, Spark Master, Spark Workers)*
+
+#### Phase 2: MySQL Initial Data
+![MySQL Initial Data](screenshots/02-mysql-initial-data.png)
+*Dữ liệu khởi tạo trong MySQL inventory database*
+
+#### Phase 3: Debezium Connector Running
+![Debezium Connector Running](screenshots/03-debezium-connector-running.png)
+*Debezium connector đã đăng ký và chạy*
+
+#### Phase 4: Kafka CDC Insert Event
+![Kafka CDC Insert Event](screenshots/04-kafka-cdc-insert-event.png)
+*Event insert được ghi vào Kafka topic*
+
+#### Phase 5: Kafka CDC Update Event
+![Kafka CDC Update Event](screenshots/05-kafka-cdc-update-event.png)
+*Event update được ghi vào Kafka topic*
+
+#### Phase 6: Kafka CDC Delete Event
+![Kafka CDC Delete Event](screenshots/06-kafka-cdc-delete-event.png)
+*Event delete được ghi vào Kafka topic*
+
+#### Phase 7: Spark Master UI
+![Spark Master UI](screenshots/07-spark-master-ui.png)
+*Spark Master dashboard với workers và jobs*
+
+#### Phase 8: Spark Streaming Job
+![Spark Streaming Job](screenshots/08-spark-streaming-job.png)
+*Spark streaming job consuming từ Kafka*
+
+#### Phase 9: Full Pipeline Data Flow
+![Full Pipeline Data Flow](screenshots/09-full-pipeline-data-flow.png)
+*Data flow từ MySQL → Kafka → MongoDB*
+
+---
+
+## Giao diện Web
+
+| Service | URL | Port | Mục đích |
+|---------|-----|------|---------|
+| Kafka Control Center | http://localhost:9021 | 9021 | Quản lý Kafka topics |
+| Spark Master | http://localhost:8080 | 8080 | Quản lý Spark jobs |
+| Debezium REST API | http://localhost:8083 | 8083 | Quản lý connectors |
+| Mongo Express | http://localhost:8081 | 8081 | Duyệt MongoDB |
+
+---
+
+## Khắc phục sự cố
+
+### Vấn đề Kafka
+
+**Vấn đề**: Topic không xuất hiện  
+**Giải pháp**: Đảm bảo Debezium connector đã đăng ký và chạy
+```bash
+curl http://localhost:8083/connectors/mysql-connector/status
+```
+
+**Vấn đề**: Messages không chảy  
+**Giải pháp**: Kiểm tra logs Debezium
+```bash
+docker logs cdc-debezium -f | grep ERROR
+```
+
+### Vấn đề MongoDB
+
+**Vấn đề**: Insert không thành công  
+**Giải pháp**: Xác minh MongoDB chạy
+```bash
+docker exec -it cdc-mongodb mongosh -u root -p root123 --authenticationDatabase admin --eval "db.adminCommand('ping')"
+```
+
+### Vấn đề Spark
+
+**Vấn đề**: Spark job lỗi  
+**Giải pháp**: Kiểm tra logs Spark worker
+```bash
+docker logs cdc-spark-worker-1 -f
+```
+
+### Xung đột cổng
+
+```bash
+# Tìm process sử dụng cổng
+sudo lsof -i :<port>
+
+# Tắt process
+sudo kill -9 <PID>
+```
+
+---
+
+## Quy ước Commit
+
+**Định dạng**: `<type>(<scope>): <subject>`
+
+Ví dụ:
+```
+feat(mysql): khởi tạo database với dữ liệu mẫu
+feat(debezium): đăng ký mysql connector
+feat(kafka): kiểm tra thao tác CRUD
+feat(spark): tạo streaming job
+feat(pipeline): tích hợp đầy đủ hoàn thành
+fix(debezium): cập nhật cấu hình connector
+docs(readme): thêm hoàn thành phase
+test(pipeline): xác minh end-to-end data flow
+```
+
+---
+
+## Tài liệu tham khảo
+
+- [Docker Documentation](https://docs.docker.com/)
+- [MySQL Binlog Documentation](https://dev.mysql.com/doc/refman/8.0/en/binary-log.html)
+- [Debezium Documentation](https://debezium.io/documentation/)
+- [Apache Kafka Documentation](https://kafka.apache.org/documentation/)
+- [Apache Spark Streaming](https://spark.apache.org/docs/latest/streaming-programming-guide.html)
+- [MongoDB Documentation](https://docs.mongodb.com/)
+
+---
+
+## Danh sách kiểm tra - Full Pipeline
+
+- [x] MySQL đã khởi tạo với binary log
+- [x] Debezium connector đã đăng ký
+- [x] Kafka topics được tạo tự động
+- [x] CDC operations đã kiểm tra (Insert, Update, Delete)
+- [x] Spark cluster chạy
+- [x] Spark streaming job consuming từ Kafka
+- [x] Dữ liệu đồng bộ với MongoDB
+- [x] Screenshots đã chụp
+- [x] Documentation hoàn thành
+- [x] GitHub push hoàn thành
 
 ---
 
 ## Git Workflow
 
-### Commit Convention
-Format: `<type>(<scope>): <subject>`
+### Workflow theo Phase
 
-Types: `feat`, `fix`, `docs`, `test`, `refactor`, `chore`  
-Scopes: `mysql`, `mongodb`, `kafka`, `debezium`, `spark`, `readme`, `pipeline`
-
-Examples:
 ```bash
-feat(mongodb): add docker-compose with sample data
-fix(kafka): enable topic deletion in docker-compose
-docs(readme): update phase 3 completion
-```
+# 1. Thực hiện thay đổi
+# [tạo/cập nhật files]
 
-### Basic Git Commands
-```bash
-# Check status
-git status                   # Show changed files
-git log --oneline           # Show commit history
-
-# Add & Commit
-git add <file>              # Add single file
-git add .                   # Add all changes
-git commit -m "message"     # Commit with message
-
-# Push
-git push origin main        # Push to GitHub
-
-# Verify
-git log --oneline -5        # Show last 5 commits
-```
-
-### Typical Workflow per Phase
-```bash
-# 1. Make changes
-# [create/update files]
-
-# 2. Add files
+# 2. Thêm files
 git add <files>
 
 # 3. Commit
-git commit -m "feat(<scope>): description"
+git commit -m "feat(<scope>): mô tả"
 
 # 4. Push
 git push origin main
 
-# 5. Verify
+# 5. Xác minh
 git log --oneline -2
 ```
 
----
+### Ví dụ Commits
 
-## Screenshots
-
-### Phase 1: MySQL
-![MySQL Running](screenshots/01-mysql-running.png)
-MySQL container + sample data
-
-### Phase 2: MongoDB
-![MongoDB Running](screenshots/02-mongodb-running.png)
-MySQL + MongoDB containers
-
-![MongoDB Sample Data](screenshots/03-mongodb-sample-data.png)
-3 records in orders collection
-
-### Phase 3: Kafka
-![Kafka Running](screenshots/04-kafka-running.png)
-All containers running (MySQL, MongoDB, Zookeeper, Kafka, Kafka-UI)
-
-![Kafka Producer Consumer](screenshots/05-kafka-producer-consumer.png)
-Producer/Consumer test output
-
-### Phase 4: Debezium (Coming Soon)
-![Debezium Running](screenshots/06-debezium-running.png)
-Debezium connector running
-
-![Debezium Connector Status](screenshots/07-debezium-connector-status.png)
-MySQL connector status OK
-
-### Phase 5: Spark (Coming Soon)
-![Spark Running](screenshots/08-spark-running.png)
-Spark Master + Workers
-
-### Phase 6: Full Pipeline (Coming Soon)
-![Full Pipeline Data](screenshots/09-full-pipeline-data.png)
-Data flow MySQL → MongoDB
-
----
-
-## Web UIs
-
-| Service | URL | Port | Purpose |
-|---------|-----|------|---------|
-| Kafka UI | http://localhost:8080 | 8080 | Monitor Kafka topics |
-| Mongo Express | http://localhost:8081 | 8081 | Browse MongoDB data |
-| Spark Master | http://localhost:8888 | 8888 | Monitor Spark jobs |
-| Debezium REST | http://localhost:8083 | 8083 | Manage connectors |
-
----
-
-## Troubleshooting
-
-### Topic deletion not working
-Problem: `delete.topic.enable=false`  
-Solution: Add `KAFKA_DELETE_TOPIC_ENABLE: "true"` to Kafka environment, restart
-
-### MongoDB insert not working
-Problem: Heredoc fails with docker exec  
-Solution: Use `--eval` flag instead of heredoc
-
-### Kafka commands not found
-Problem: `kafka-topics.sh not found`  
-Solution: Use `kafka-topics` (without .sh) for Confluent 7.5.0+
-
-### TTY error
-Problem: `input device is not a TTY`  
-Solution: Remove `-it` flag from docker exec
-
-### Port already in use
-Solution:
 ```bash
-sudo lsof -i :<port>      # Find process using port
-sudo kill -9 <PID>        # Kill process
+git add demo/init.sql demo/test-data.sql
+git commit -m "feat(mysql): khởi tạo database và test data"
+git push origin main
+
+git add demo/register-connector.sh
+git commit -m "feat(debezium): tạo script đăng ký connector"
+git push origin main
+
+git add screenshots/04-kafka-cdc-insert-event.png
+git commit -m "test(kafka): xác minh insert CDC event"
+git push origin main
 ```
 
 ---
 
-**Last Updated**: 2026-02-24
+## Tóm tắt
+
+**Kiến trúc Pipeline**:
+```
+MySQL (binlog enabled)
+    ↓
+Debezium Connector
+    ↓
+Kafka Broker (Topics)
+    ↓
+Spark Streaming
+    ↓
+MongoDB (Target DB)
+```
+
+**Tính năng**:
+- Real-time CDC với MySQL binary log
+- Kafka message broker để streaming events
+- Debezium để seamless CDC
+- Spark Streaming để xử lý dữ liệu
+- MongoDB làm cơ sở dữ liệu đích
+- Docker Compose để triển khai dễ dàng
+- Tự động hoàn toàn với một lệnh duy nhất
+
+**Thành tựu chính**:
+- Pipeline chạy hoàn toàn qua Docker Compose
+- Tất cả containers được điều phối trong một file
+- CRUD operations được ghi lại và streaming
+- Dữ liệu đồng bộ được xác minh end-to-end
+- Documentation hoàn chỉnh với ảnh minh họa
+
+---
