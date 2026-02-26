@@ -48,9 +48,17 @@ Chạy Spark Shell với các phụ thuộc Kafka cần thiết:
   --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0
 ```
 
+**Lưu ý:** Khi paste code vào spark-shell, luôn sử dụng `:paste` mode để tránh lỗi syntax.
+
 ### 4. Đọc CDC Topic từ Kafka
 
-Sao chép và dán đoạn mã sau vào spark-shell:
+Sử dụng `:paste` mode để paste code đúng định dạng:
+
+```
+:paste
+```
+
+Rồi dán code này:
 
 ```scala
 import org.apache.spark.sql.functions._
@@ -58,20 +66,37 @@ import org.apache.spark.sql.types._
 
 val df = spark.readStream
   .format("kafka")
-  .option("kafka.bootstrap.servers", "cdc-kafka:9092")
+  .option("kafka.bootstrap.servers", "cdc-kafka:29092")
   .option("subscribe", "mysql.inventory.customers")
   .option("startingOffsets", "earliest")
   .load()
 
-val valueDF = df.selectExpr("CAST(value AS STRING)")
+val schema = new StructType()
+  .add("before", new StructType()
+    .add("id", IntegerType)
+    .add("name", StringType)
+    .add("email", StringType)
+    .add("created_at", StringType))
+  .add("after", new StructType()
+    .add("id", IntegerType)
+    .add("name", StringType)
+    .add("email", StringType)
+    .add("created_at", StringType))
+  .add("op", StringType)
 
-val query = valueDF.writeStream
+val query = df.selectExpr("CAST(value AS STRING) as json")
+  .select(get_json_object(col("json"), "$.payload").alias("payload"))
+  .select(from_json(col("payload"), schema).alias("data"))
+  .select("data.after.*")
+  .writeStream
   .format("console")
   .option("truncate", false)
   .start()
 
 query.awaitTermination()
 ```
+
+Nhấn `Ctrl + D` để kết thúc `:paste` mode.
 
 ### 5. Kiểm Tra CDC Theo Thời Gian Thực
 
@@ -100,15 +125,18 @@ Ctrl + C
 | **CDC Format** | Debezium JSON Envelope |
 | **Phiên Bản Spark** | 3.5.0 |
 | **Phiên Bản Kafka Client** | 3.4.1 |
-| **Kafka Bootstrap Servers** | `cdc-kafka:9092` |
+| **Kafka Bootstrap Servers** | `cdc-kafka:29092` |
 | **Starting Offsets** | `earliest` |
+| **Output Format** | Debezium JSON với payload extraction |
 
 ## Tính Năng
 
-- Tiêu thụ CDC events từ Kafka theo thời gian thực
-- Xử lý định dạng Debezium JSON
-- Nhiều tùy chọn sink: Console, MongoDB, Redis
-- Structured Streaming để đảm bảo tính sẵn sàng và ngữ nghĩa exactly-once
+- Tiêu thụ CDC events từ Kafka theo thời gian thực (Structured Streaming)
+- Parse định dạng Debezium JSON Envelope
+- Extract `before` và `after` state từ CDC payload
+- Real-time display dữ liệu thay đổi trên console
+- Hỗ trợ multiple sinks: Console, MongoDB, Redis (tùy chỉnh)
+- Exactly-once semantics và fault tolerance
 
 ## Quy Trình Git
 
@@ -141,6 +169,12 @@ spark/
 ## Khắc Phục Sự Cố
 
 - **Giao diện Spark không truy cập được**: Đảm bảo cổng 8080 không bị chặn và các container đang chạy
-- **Kết nối Kafka thất bại**: Xác minh hostname `cdc-kafka` và cổng 9092 đúng
-- **Không xuất hiện sự kiện CDC**: Kiểm tra xem Debezium được cấu hình đúng cách và binlog của MySQL được bật
+- **Kết nối Kafka thất bại**: Xác minh hostname `cdc-kafka` và cổng `29092` (internal network port) đúng
+- **Không xuất hiện sự kiện CDC**: Kiểm tra xem Debezium connector đang chạy và MySQL binlog được bật
+- **Paste code gặp lỗi**: Luôn sử dụng `:paste` mode khi paste code vào spark-shell
 
+## Tài Liệu Tham Khảo
+
+- [Apache Spark Structured Streaming](https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html)
+- [Debezium MySQL Connector](https://debezium.io/documentation/reference/stable/connectors/mysql.html)
+- [Kafka Integration for Spark](https://spark.apache.org/docs/latest/structured-streaming-kafka-integration.html)
