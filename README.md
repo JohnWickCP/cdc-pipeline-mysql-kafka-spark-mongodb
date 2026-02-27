@@ -1,4 +1,5 @@
-# CDC Pipeline: MySQL → Kafka → Spark → MongoDB
+# CDC Pipeline: MySQL -> Debezium → Kafka → Spark → Redis -> MongoDB
+> Hệ thống triển khai kiến trúc Change Data Capture (CDC) sử dụng Debezium và Kafka để stream change events từ MySQL, xử lý bằng Spark Structured Streaming và đồng bộ dữ liệu gần real-time sang Redis (cache layer) và MongoDB (storage layer)
 
 > Demo đơn giản Change Data Capture pipeline đồng bộ dữ liệu gần real-time
 
